@@ -91,51 +91,59 @@ const User = require("../models/User");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 
-const loginOrRegister = async (req, res) => {
+// Admin login - for admins only
+const adminLogin = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    if (!email || !password)
+    if (!email || !password) {
       return res.status(400).json({ message: "Email & password required" });
-
-    // لو عندك Admins محددين في .env
-    const adminEmails = process.env.ADMIN_EMAILS?.split(",") || [];
-
-    // نبحث عن المستخدم في DB
-    let user = await User.findOne({ email });
-
-    if (!user) {
-      // المستخدم جديد → هنعمل تسجيله
-      const hashedPassword = await bcrypt.hash(password, 10);
-
-      // لو الإيميل موجود في قائمة Admins → role = admin
-      const role = adminEmails.includes(email) ? "admin" : "user";
-
-      user = await User.create({
-        email,
-        password: hashedPassword,
-        role,
-      });
-    } else {
-      // المستخدم موجود → نتحقق من كلمة السر
-      const isMatch = await bcrypt.compare(password, user.password);
-      if (!isMatch)
-        return res.status(400).json({ message: "Wrong password" });
     }
 
-    // إنشاء JWT
+    // Get admin emails from environment and trim whitespace
+    const adminEmails = process.env.ADMIN_EMAILS?.split(",").map(e => e.trim()) || [];
+    
+    console.log("Admin emails list:", adminEmails);
+    console.log("Attempting login with email:", email);
+
+    // Check if email is authorized as admin
+    if (!adminEmails.includes(email)) {
+      console.log("Email not authorized");
+      return res.status(403).json({ message: "Unauthorized" });
+    }
+
+    // Search for admin user in database
+    let admin = await User.findOne({ email });
+
+    // If admin doesn't exist, create admin account
+    if (!admin) {
+      const hashedPassword = await bcrypt.hash(password, 10);
+      admin = await User.create({
+        email,
+        password: hashedPassword,
+        role: "admin",
+      });
+    } else {
+      // Admin exists, verify password
+      const isMatch = await bcrypt.compare(password, admin.password);
+      if (!isMatch) {
+        return res.status(400).json({ message: "Wrong password" });
+      }
+    }
+
+    // Create JWT token
     const token = jwt.sign(
-      { id: user._id, role: user.role },
+      { id: admin._id, role: admin.role },
       process.env.JWT_SECRET,
       { expiresIn: "1d" }
     );
 
-    // إرجاع البيانات + التوكن
-    res.json({
-      message: "Login successful",
+    // Return response with success flag and role
+    res.status(200).json({
+      success: true,
+      role: "admin",
       token,
-      email: user.email,
-      role: user.role,
+      email: admin.email,
     });
 
   } catch (err) {
@@ -144,4 +152,4 @@ const loginOrRegister = async (req, res) => {
   }
 };
 
-module.exports = { loginOrRegister };
+module.exports = { adminLogin };
